@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
-
 import axios from "axios"
-
+import RapidFire from './RapidFire';
 
 function App(){
   const [message, setMessage] = useState("")
@@ -19,8 +18,10 @@ function App(){
     <div>
       <h1>Practease</h1>
       <p>{message ? message : "Loading..."}</p>
+
+      <RapidFire />
     </div>
   );
 }
 
-export default App
+export default App;
