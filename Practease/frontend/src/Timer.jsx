@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-const Timer = ({ isTimeUp, setIsTimeUp, setResponseTime }) => {
+const Timer = ({ isTimeUp, setIsTimeUp }) => {
     const [time, setTime] = useState(5);
 
     useEffect(() => {
@@ -15,10 +15,6 @@ const Timer = ({ isTimeUp, setIsTimeUp, setResponseTime }) => {
 
         return () => clearTimeout(timer);
     }, [time]);
-
-    useEffect(() => {
-        setResponseTime(5 - time); 
-    }, [time, setResponseTime]);
 
     return <p>Time Left: {time}s</p>;
 };
