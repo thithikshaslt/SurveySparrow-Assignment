@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import React from "react";
 import Timer from './Timer';
@@ -6,33 +6,48 @@ import "./RapidFire.css";
 
 const RapidFire = () => {
     const [analogyPrompt, setAnalogyPrompt] = useState('');
+    const [promptId, setPromptId] = useState(null);
     const [userResponse, setUserResponse] = useState('');
     const [isTimeUp, setIsTimeUp] = useState(false);
     const [aiEval, setAiEval] = useState(null);
-    const [responseTime, setResponseTime] = useState(0);
+    const [responseTime, setResponseTime] = useState(5);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [audioBlob, setAudioBlob] = useState(null);
-    
-    let mediaRecorder;
-    let chunks = [];
+
+    const mediaRecorderRef = useRef(null);
+    const chunksRef = useRef([]);
 
     useEffect(() => {
         axios.get('http://127.0.0.1:8080/api/speakingexercise/rapidfire-exercises/')
         .then((response) => {
             const randomIdx = Math.floor(Math.random() * response.data.length);
+            const selectedPrompt = response.data[randomIdx];
             setAnalogyPrompt(response.data[randomIdx].analogy_prompt);
+            setPromptId(selectedPrompt.id);
         })
-        .catch((error) => console.error('error in fetching analogy:', error));
+        .catch((error) => console.error('Error fetching analogy:', error));
     }, []);
 
     const startRecording = () => {
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then((stream) => {
-                mediaRecorder = new MediaRecorder(stream);
+                const mediaRecorder = new MediaRecorder(stream);
+                mediaRecorderRef.current = mediaRecorder;
                 mediaRecorder.start();
                 setIsRecording(true);
+                chunksRef.current = [];
 
+                mediaRecorder.ondataavailable = (event) => {
+                    chunksRef.current.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
+                    setAudioBlob(audioBlob);
+                };
+
+                // Speech Recognition Setup
                 const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
                 recognition.lang = "en-US";
                 recognition.continuous = false;
@@ -44,56 +59,45 @@ const RapidFire = () => {
 
                 recognition.start();
 
-                mediaRecorder.ondataavailable = (event) => {
-                    chunks.push(event.data);
-                };
-
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-                    setAudioBlob(audioBlob);
-                };
-
                 setTimeout(() => {
                     mediaRecorder.stop();
                     recognition.stop();
                     setIsRecording(false);
-                }, responseTime * 1000); 
+                }, responseTime * 1000);
             })
             .catch((error) => console.error("Error accessing microphone:", error));
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!audioBlob) {
             console.error("No audio recorded.");
             return;
         }
-    
+
         setIsSubmitting(true);
-    
+
         const formData = new FormData();
-        // formData.append("session_id", "12345");
         formData.append("response_text", userResponse);
         formData.append("response_time", responseTime);
-        formData.append("prompt", analogyPrompt);
+        formData.append("prompt",promptId);
         formData.append("response_audio", audioBlob, "response.wav");
-    
-        // Debug: Log form data before sending
-        for (let [key, value] of formData.entries()) {
-            console.log(key, value);
-        }
-    
-        axios.post('http://127.0.0.1:8080/api/speakingexercise/rapidfire-responses/', formData, {
-            headers: { "Content-Type": "multipart/form-data" }
-        })
-        .then((response) => {
+
+        console.log("Submitting:", Object.fromEntries(formData.entries()));
+
+        try {
+            const response = await axios.post(
+                'http://127.0.0.1:8080/api/speakingexercise/rapidfire-responses/',
+                formData,
+                { headers: { "Content-Type": "multipart/form-data" } }
+            );
             setAiEval(response.data);
-        })
-        .catch((error) => console.error('Error in submitting response:', error));
-        if (error.response) {
-            console.error('Backend Response:', error.response.data);
+        } catch (error) {
+            console.error('Error in submitting response:', error);
+            if (error.response) {
+                console.error('Backend Response:', error.response.data);
+            }
         }
     };
-    
 
     return (
         <div className="exercise-container">
