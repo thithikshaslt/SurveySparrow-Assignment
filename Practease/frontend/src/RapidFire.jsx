@@ -3,23 +3,52 @@ import axios from "axios";
 import Timer from "./Timer";
 import "./RapidFire.css";
 
-
 const RapidFire = () => {
   const [analogyPrompt, setAnalogyPrompt] = useState("");
   const [promptId, setPromptId] = useState(null);
   const [isTimeUp, setIsTimeUp] = useState(false);
-  const [aiEval, setAiEval] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transcription, setTranscription] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [responseTime, setResponseTime] = useState(null);
   const [isSubmitEnabled, setIsSubmitEnabled] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
-  const [transcription, setTranscription] = useState("");
+  const [aiEval, setAiEval] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const startTimeRef = useRef(null);
   const whisperWorkerRef = useRef(null);
 
+  
+
+  // **Properly initialize the Web Worker**
+  useEffect(() => {
+    whisperWorkerRef.current = new Worker(
+      new URL("/src/workers/whisperWorker.js", import.meta.url),
+      { type: "module" }
+    );
+
+    console.log("✅ Whisper Worker Initialized");
+
+    whisperWorkerRef.current.onmessage = (event) => {
+      console.log("📩 Whisper Worker Response:", event.data); // Check what response is received
+  
+      const { type, transcription, error } = event.data;
+      if (type === "TRANSCRIPTION_RESULT") {
+        console.log("✅ Transcription Received:", transcription);
+        if (transcription.trim() === "") {
+          console.warn("⚠️ Whisper returned an empty transcription!");
+        }
+        setTranscription(transcription);
+      } else if (type === "ERROR") {
+        console.error("❌ Whisper Worker Error:", error);
+      }
+    };
+
+    return () => whisperWorkerRef.current.terminate();
+  }, []);
+
+  // **Fetch Random Analogy Prompt**
   useEffect(() => {
     axios
       .get("http://127.0.0.1:8080/api/speakingexercise/rapidfire-exercises/")
@@ -32,38 +61,27 @@ const RapidFire = () => {
       .catch((error) => console.error("Error fetching analogy:", error));
   }, []);
 
+  // **Handle Transcription After Recording**
   useEffect(() => {
     if (audioBlob) {
-      console.log("Audio recorded. Enabling submit.");
-      setIsSubmitEnabled(true);
-
-      // Start transcription in the web worker
-      whisperWorkerRef.current.postMessage({
-        type: "TRANSCRIBE",
-        audio: audioBlob,
-      });
+      console.log("Audio recorded. Sending to Whisper worker...");
+  
+      const reader = new FileReader();
+      reader.readAsArrayBuffer(audioBlob);
+  
+      reader.onloadend = () => {
+        const audioBuffer = reader.result;
+        console.log("Sending audio buffer to WhisperWorker:", audioBuffer);
+  
+        whisperWorkerRef.current.postMessage({
+          type: "TRANSCRIBE",
+          audio: audioBuffer,
+        });
+      };
     }
   }, [audioBlob]);
-
-  useEffect(() => {
-    whisperWorkerRef.current = new Worker(
-      new URL("/workers/whisperWorker.js", import.meta.url),
-      {type: "module"}
-    );
-    console.log("YES")
-    whisperWorkerRef.current.onmessage = (event) => {
-      const { type, transcription, error } = event.data;
-      if (type === "TRANSCRIPTION_RESULT") {
-        setTranscription(transcription);
-        console.log("Transcription:", transcription);
-      } else if (type === "ERROR") {
-        console.error("Transcription error:", error);
-      }
-    };
-    console.log("HELL")
-    return () => whisperWorkerRef.current.terminate();
-  }, []);
-
+  
+  // **Start Recording**
   const startRecording = () => {
     navigator.mediaDevices
       .getUserMedia({ audio: true })
@@ -82,10 +100,7 @@ const RapidFire = () => {
           if (chunks.length > 0) {
             const audioBlob = new Blob(chunks, { type: "audio/wav" });
             setAudioBlob(audioBlob);
-            setIsSubmitEnabled(true); // Enable submit button immediately
-            console.log("Recording finished. Blob size:", audioBlob.size);
-          } else {
-            console.error("No audio data captured.");
+            setIsSubmitEnabled(true);
           }
 
           stream.getTracks().forEach((track) => track.stop());
@@ -110,6 +125,7 @@ const RapidFire = () => {
       .catch((error) => console.error("Error accessing microphone:", error));
   };
 
+  // **Stop Recording**
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -119,39 +135,33 @@ const RapidFire = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!audioBlob) {
-      console.error("No audio recorded. Cannot submit.");
+  // **Submit Response**
+  const handleSubmit = () => {
+    if (!transcription) {
+      alert("Transcription is empty! Please try again.");
       return;
     }
 
     setIsSubmitting(true);
 
-    const formData = new FormData();
-    formData.append("response_text", transcription);
-    formData.append(
-      "response_time",
-      responseTime ? responseTime.toFixed(2) : "5.00"
-    );
-    formData.append("prompt", promptId);
-    formData.append("response_audio", audioBlob, "response.wav");
+    const requestData = {
+      analogy_exercise: promptId,
+      user_response: transcription,
+      response_time: responseTime,
+    };
 
-    try {
-      const response = await axios.post(
-        "http://127.0.0.1:8080/api/speakingexercise/rapidfire-responses/",
-        formData,
-        { headers: { "Content-Type": "multipart/form-data" } }
-      );
-      setAiEval(response.data);
-      console.log("Submission successful:", response.data);
-    } catch (error) {
-      console.error("Error in submitting response:", error);
-      if (error.response) {
-        console.error("Backend Response:", error.response.data);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+    axios
+      .post("http://127.0.0.1:8080/api/speakingexercise/rapidfire-responses/", requestData)
+      .then((response) => {
+        console.log("Submission successful:", response.data);
+        setAiEval(response.data.ai_evaluation);
+        alert("Response submitted successfully!");
+      })
+      .catch((error) => {
+        console.error("Error submitting response:", error);
+        alert("Failed to submit response.");
+      })
+      .finally(() => setIsSubmitting(false));
   };
 
   return (
@@ -171,16 +181,6 @@ const RapidFire = () => {
         </button>
       )}
 
-      <button onClick={handleSubmit} disabled={!isSubmitEnabled || isSubmitting}>
-        Submit
-      </button>
-
-      {responseTime !== null && (
-        <p>
-          <strong>Response Time:</strong> {responseTime.toFixed(2)} seconds
-        </p>
-      )}
-
       {transcription && (
         <div>
           <h3>Transcription</h3>
@@ -188,10 +188,15 @@ const RapidFire = () => {
         </div>
       )}
 
+      {/* Submit Button */}
+      <button onClick={handleSubmit} disabled={!isSubmitEnabled || isSubmitting}>
+        {isSubmitting ? "Submitting..." : "Submit Response"}
+      </button>
+
       {aiEval && (
         <div>
           <h3>AI Evaluation</h3>
-          <p>Fluency: {aiEval.fluency_score}</p>
+          <p>{aiEval}</p>
         </div>
       )}
     </div>
