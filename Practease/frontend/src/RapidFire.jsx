@@ -19,36 +19,32 @@ const RapidFire = () => {
   const startTimeRef = useRef(null);
   const whisperWorkerRef = useRef(null);
 
-  
-
-  // **Properly initialize the Web Worker**
   useEffect(() => {
     whisperWorkerRef.current = new Worker(
       new URL("/src/workers/whisperWorker.js", import.meta.url),
       { type: "module" }
     );
 
-    console.log("✅ Whisper Worker Initialized");
+    console.log("Whisper Worker Initialized");
 
     whisperWorkerRef.current.onmessage = (event) => {
-      console.log("📩 Whisper Worker Response:", event.data); // Check what response is received
+      console.log("Whisper Worker Response:", event.data); 
   
       const { type, transcription, error } = event.data;
       if (type === "TRANSCRIPTION_RESULT") {
-        console.log("✅ Transcription Received:", transcription);
+        console.log("Transcription Received:", transcription);
         if (transcription.trim() === "") {
-          console.warn("⚠️ Whisper returned an empty transcription!");
+          console.warn("Whisper returned an empty transcription!");
         }
         setTranscription(transcription);
       } else if (type === "ERROR") {
-        console.error("❌ Whisper Worker Error:", error);
+        console.error("Whisper Worker Error:", error);
       }
     };
 
     return () => whisperWorkerRef.current.terminate();
   }, []);
 
-  // **Fetch Random Analogy Prompt**
   useEffect(() => {
     axios
       .get("http://127.0.0.1:8080/api/speakingexercise/rapidfire-exercises/")
@@ -61,7 +57,6 @@ const RapidFire = () => {
       .catch((error) => console.error("Error fetching analogy:", error));
   }, []);
 
-  // **Handle Transcription After Recording**
   useEffect(() => {
     if (audioBlob) {
       console.log("Audio recorded. Sending to Whisper worker...");
@@ -81,7 +76,6 @@ const RapidFire = () => {
     }
   }, [audioBlob]);
   
-  // **Start Recording**
   const startRecording = () => {
     navigator.mediaDevices
       .getUserMedia({ audio: true })
@@ -110,7 +104,6 @@ const RapidFire = () => {
         setIsRecording(true);
         startTimeRef.current = Date.now();
 
-        // Auto-stop after 5 seconds
         setTimeout(() => {
           if (mediaRecorder.state !== "inactive") {
             mediaRecorder.stop();
@@ -125,7 +118,6 @@ const RapidFire = () => {
       .catch((error) => console.error("Error accessing microphone:", error));
   };
 
-  // **Stop Recording**
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -135,7 +127,6 @@ const RapidFire = () => {
     }
   };
 
-  // **Submit Response**
   const handleSubmit = () => {
     if (!transcription) {
       alert("Transcription is empty! Please try again.");
